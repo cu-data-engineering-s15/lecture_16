@@ -46,8 +46,740 @@
           <p>March 5, 2015</p>
         </section>
 
-      </div>
+        <section>
+          <h2>Overview</h2>
+          <ul>
+            <li>Import tweets into MongoDB</li>
+            <li>Perform queries with no indexes</li>
+            <li>Create indexes</li>
+            <li>Perform queries with indexes to compare</li>
+            <li>Advanced indexes:
+              <ul>
+                <li>compound indexes</li>
+          </ul>
+        </section>
 
+        <section>
+          <h2>Importing Tweets</h2>
+          <ul>
+            <li>Let's construct a program for importing tweets into MongoDB</li>
+            <li>Assumptions:
+              <ul>
+                <li>Input file: tweet objects in JSON format, one per line</li>
+                <li>Name of Database: <strong>data</strong></li>
+                <li>Name of Collection: <strong>tweets</strong></li>
+                <li>We will use the <strong>mongo</strong> Ruby gem for accessing MongoDB</li>
+              </ul>
+            </li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Getting Started</h2>
+          <pre><code data-trim contenteditable>
+mkdir import_tweets
+cd import_tweets
+vi Gemfile
+          </code></pre>
+          <p>The contents of Gemfile should look like this:</p>
+          <pre><code data-trim contenteditable>
+source 'https://rubygems.org'
+gem 'mongo'
+          </code></pre>
+          <p>Then type the following:</p>
+          <pre><code data-trim contenteditable>
+bundle install
+vi import.rb
+          </code></pre>
+        </section>
+
+        <section>
+          <h2>Initial Version</h2>
+          <p>The first version of import.rb simply reads its input file.</p>
+          <pre><code data-trim contenteditable>
+require 'bundler/setup'
+
+require 'date'
+require 'json'
+require 'mongo'
+require 'time'
+
+if __FILE__ == $0
+
+  STDOUT.sync = true
+
+  input_file = ARGV[0]
+
+  IO.foreach(input_file) do |line|
+    tweet = JSON.parse(line.chomp)
+  end
+
+end
+          </code></pre>
+          <p>Note: The program doesn't do anything yet!</p>
+        </section>
+
+        <section>
+          <h2>Connecting to Mongo</h2>
+          <ul>
+            <li>Using the 'mongo' Ruby Gem</li>
+          </ul>
+          <p>&nbsp;</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Step</th>
+                <th>Command</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>First</td>
+                <td>include Mongo</td>
+                <td>Import the Mongo module</td>
+              </tr>
+              <tr>
+                <td>Second</td>
+                <td>mongo = MongoClient.new</td>
+                <td>Connection to MongoDB</td>
+              </tr>
+              <tr>
+                <td>Third</td>
+                <td>db = mongo.db('data')</td>
+                <td>Get a handle to the 'data' database</td>
+              </tr>
+              <tr>
+                <td>Fourth</td>
+                <td>tweets = db['tweets']</td>
+                <td>Get a handle to the 'tweets' collection</td>
+              </tr>
+              <tr>
+                <td>When Done</td>
+                <td>mongo.close</td>
+                <td>Close the connection to MongoDB</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section>
+          <h2>Back to Import.rb</h2>
+          <pre><code data-trim contenteditable>
+require 'bundler/setup'
+
+require 'date'
+require 'json'
+require 'mongo'
+require 'time'
+
+include Mongo
+
+if __FILE__ == $0
+
+  STDOUT.sync = true
+
+  input_file = ARGV[0]
+
+  mongo  = MongoClient.new
+  db     = mongo.db('data')
+  tweets = db['tweets']
+
+  IO.foreach(input_file) do |line|
+    tweet = JSON.parse(line.chomp)
+  end
+
+  mongo.close
+
+end
+          </code></pre>
+          <p>Still does not do anything, except crash if you run it!</p>
+          <p>Why? It needs MongoDB to be running now.</p>
+        </section>
+
+        <section>
+          <h2>Running/Checking MongoDB</h2>
+          <ul>
+            <li>In order for our program to run, MongoDB needs to be running</li>
+            <li>mongod --config /usr/local/etc/mongod.conf</li>
+            <li>OR:  mongod --dbpath &lt;path to data directory&gt;</li>
+            <li>Then launch the mongo client with: mongo</li>
+            <li>Type: show dbs to see that the 'data' db does not exist</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Before We Import (1)</h2>
+          <ul>
+            <li>Before we import tweets into MongoDB
+              <ul>
+                <li>We should clean up our data</li>
+              </ul>
+            </li>
+            <li>For our JSON object, most of the values of our keys are strings</li>
+            <li>That works fine for most attributes except for created_at</li>
+            <li>created_at is a time stamp and looks like this:
+              <ul>
+                <li>"Sun Feb 15 02:41:32 +0000 2015"</li>
+              </ul>
+            </li>
+            <li>In order to do queries by time, we need to store this value not as a string but as a time object</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Before We Import (2)</h2>
+          <ul>
+            <li>Ruby makes the conversion easy
+              <ul>
+                <li>t = DateTime.parse("Sun Feb 15 02:41:32 +0000 2015")</li>
+                <li>return t.to_time.utc</li>
+              </ul>
+            </li>
+            <li>Note: The conversion performed by to_time() converts the time to your current time zone. The call to utc() converts it back to the UTC timezone.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Before We Import (3)</h2>
+          <ul>
+            <li>There are four places where created_at can be found on a tweet
+              <ul>
+                <li>tweet['created_at']</li>
+                <li>tweet['user']['created_at']</li>
+                <li>tweet['retweeted_status']['created_at']</li>
+                <li>tweet['retweeted_status']['user']['created_at']</li>
+              </ul>
+            </li>
+            <li>Not all of these locations exist for each tweet</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Before We Import (4)</h2>
+          <ul>
+            <li>The code to do this conversion is out-of-scope
+              <ul>
+                <li>It's in the released version of the script</li>
+              </ul>
+            </li>
+            <li>The key thing is before the conversion, the date looks like this:
+              <ul>
+                <li>"Sun Feb 15 02:41:32 +0000 2015"</li>
+              </ul>
+            </li>
+            <li>After the conversion, the date looks like this:
+              <ul>
+                <li>2015-02-15 02:41:32 UTC</li>
+              </ul>
+            </li>
+            <li>That is the output of Ruby's built-in time object, which is what we want</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Before We Import (5)</h2>
+          <ul>
+            <li>The other aspect of the data that we need to clean is the coordinates field</li>
+            <li>We will use this field to do geospatial queries in Mongo</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Before We Import (6)</h2>
+            <li>The coordinates field has one of three values
+              <ul>
+                <li>null: true for the vast majority of tweets</li>
+                <li>Empty:
+                  <pre><code data-trim contenteditable>
+{
+  "type": "Point",
+  "coordinates": [
+    0,
+    0
+  ]
+}
+                  </code></pre>
+                </li>
+                <li>Valid:
+                  <pre><code data-trim contenteditable>
+{
+  "type": "Point",
+  "coordinates": [
+    2.35247594,
+    48.86454076
+  ]
+}
+                  </code></pre>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Before We Import (7)</h2>
+          <ul>
+            <li>The problem: Mongo is finicky.
+              <ul>
+                <li>It can't handle the null values in its geospatial index, so we have to get rid of them</li>
+                <li>The empty values don't make sense and would just confuse our queries, so we need to get rid of them too</li>
+              </ul>
+            </li>
+            <li>Reflection: This type of cleanup and manipulation happens ALL THE TIME when working with data sets (big or small)</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Before We Import (8)</h2>
+          <p>Fortunately, the code to do this is straightforward</p>
+          <pre><code data-trim contenteditable>
+def remove_coordinates_if_needed(tweet)
+  if tweet['coordinates'].nil?
+    tweet.delete('coordinates')
+    return
+  end
+  value = tweet['coordinates']['coordinates'][0]
+  if value == 0
+    tweet.delete('coordinates')
+  end
+end
+          </code></pre>
+        </section>
+
+      <section>
+        <h2>Back to Import.rb</h2>
+        <ul>
+          <li>Our main routine now looks like this</li>
+        </ul>
+        <pre><code data-trim contenteditable>
+if __FILE__ == $0
+
+  STDOUT.sync = true
+
+  input_file = ARGV[0]
+
+  mongo  = MongoClient.new
+  db     = mongo.db('data')
+  tweets = db['tweets']
+
+  IO.foreach(input_file) do |line|
+    tweet = JSON.parse(line.chomp)
+    convert_created_at(tweet)
+    remove_coordinates_if_needed(tweet)
+  end
+
+  mongo.close
+
+end
+        </code></pre>
+      </section>
+
+      <section>
+        <h2>The Actual Import...</h2>
+        <ul>
+          <li>All we need to do now is actually put the tweet into the database</li>
+          <li>The code to do that is underwhelming:
+            <pre><code data-trim contenteditable>
+tweets.insert( tweet )
+            </code></pre>
+          </li>
+          <li>The code is so simple because Ruby Hashes can easily be converted to BSON (i.e. JSON) which is then stored natively by MongoDB
+            <ul>
+              <li>The Hash table is essentially MongoDB's native format</li>
+            </ul>
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Last Minute Additions</h2>
+        <ul>
+          <li>I also added a function to the import script to print out our progress through the input file
+            <ul>
+              <li>It's the more advanced version of the function I included in the CouchDB import script</li>
+              <li>Details are available in the final source code</li>
+            </ul>
+          </li>
+          <li>Note: I haven't discussed indexes yet, that's next</li>
+          <li>Let's import big_data_tweets.json file that I created for the CouchDB lecture</li>
+          <li>ruby import.rb big_data_tweets.json</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>After the Import</h2>
+        <ul>
+          <li>After the import, we can learn a few things using the mongo command line tool</li>
+        </ul>
+        <pre><code data-trim contenteditable>
+$ mongo
+> show dbs
+data           0.953GB
+> use data
+switched to db data
+> show collections
+system.indexes
+tweets
+> db.tweets.count()
+100681
+> db.tweets.findOne()
+&lt;displays a tweet object&gt;
+        </code></pre>
+      </section>
+
+      <section>
+        <h2>Why are indexes helpful? (1)</h2>
+        <ul>
+          <li>Let's see if we can demonstrate the value of indexes</li>
+          <li>Currently, we have no user-defined indexes created for this collection</li>
+          <li>Let's say we want to see the tweets with the highest retweet_count</li>
+        </ul>
+        <pre><code data-trim contenteditable>
+db.tweets.find().sort({'retweet_count':-1})
+error: {
+  "$err" : "Runner error: Overflow sort stage buffered data usage of 33557570 bytes exceeds internal limit of 33554432 bytes",
+  "code" : 17144
+}
+        </code></pre>
+        <p>Hmm. Not helpful.</p>
+      </section>
+
+      <section>
+        <h2>Why are indexes helpful? (2)</h2>
+        <ul>
+          <li>Let's see if we can find the highest retweeted tweets by specifying a query</li>
+        </ul>
+        <pre><code data-trim contenteditable>
+db.tweets.find({'retweet_count': {'$gt': 99}}).sort({'retweet_count':-1})
+&lt;short pause&gt;
+&lt;tweet object with "retweet_count" : 2121&gt;
+... more tweets ...
+        </code></pre>
+        <ul>
+          <li>That worked but let's see what's happening behind the scenes.</li>
+          <li>We can ask Mongo to <strong>explain</strong> the query</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Why are indexes helpful? (3)</h2>
+        <ul>
+          <li>The <code>explain</code> function will return information about how MongoDB will process any given query</li>
+        </ul>
+        <pre><code data-trim contenteditable>
+> db.tweets.find({'retweet_count': {'$gt': 99}}).explain()
+{
+  "cursor" : "BasicCursor",
+  "isMultiKey" : false,
+  "n" : 827,
+  "nscannedObjects" : 100681,
+  "nscanned" : 100681,
+  "nscannedObjectsAllPlans" : 100681,
+  "nscannedAllPlans" : 100681,
+  "scanAndOrder" : false,
+  "indexOnly" : false,
+  "nYields" : 786,
+  "nChunkSkips" : 0,
+  "millis" : 143,
+  "server" : "Resolution.local:27017",
+  "filterSet" : false
+}
+        </code></pre>
+      </section>
+
+      <section>
+        <h2>What did that mean?</h2>
+        <ul>
+          <li>The key fields in that information are:
+            <ul>
+              <li>cursor</li>
+              <li>n</li>
+              <li>nscanned*</li>
+            </ul>
+          </li>
+          <li>Mongo is telling us the following things
+            <ul>
+              <li>Cursor == "BasicCursor"</li>
+              <li>n == 827</li>
+              <li>nscannedObjects == 100681</li>
+            </ul>
+          </li>
+          <li>In English: "There are 827 tweets that have a retweeted_count greater than 99. I had to look at every tweet in the database to discover this!"</li>
+          <li>The short pause after we submitted this query was the result of having to wait for MongoDb to scan every object in the database</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Indexes to the Rescue!</h2>
+        <ul>
+          <li>To solve these problems, we need an index</li>
+          <li>An index will allow us to sort tweets and to make our queries much faster (especially as we get more data)</li>
+          <li>The cost? Disk Space and Memory: indexes take more disk space to store and memory to access</li>
+          <li>Additional cost? Indexes can become tricky to set-up to optimize your queries to be as fast as possible.</li>
+          <li>We will work with indexes in the Mongo client first
+            <ul>
+              <li>We will add index creation code to import.rb later</li>
+            </ul>
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Creating an Index</h2>
+        <ul>
+          <li>To create an index, we use the ensureIndex command on our collection object. (Indexes are stored on collections, not databases.)
+            <ul>
+              <li>It takes a Javascript object that specifies the keys (attributes) to index on and the direction (ascending or descending) to sort the values</li>
+            </ul>
+          </li>
+          <li>In our case, we want to index the retweet_count field</li>
+        </ul>
+        <pre><code data-trim contenteditable>
+db.tweets.ensureIndex({'retweet_count': 1})
+        </code></pre>
+        <ul>
+        <li>The '1' means ascending. If we wanted descending, we would supply '-1'</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Disclaimer</h2>
+        <ul>
+          <li>My slides are showing the output for MongoDB 2.X</li>
+          <li>I inadvertantly upgraded to MongoDB 3.0 while writing this lecture
+            <ul>
+              <li>To my horror, they changed the behavior of the explain() command!</li>
+              <li>To get similar output as to what I show in these slides, you must invoke explain with the following parameter: "executionStats"</li>
+            </ul>
+          </li>
+          <li>I tell you, when creating lectures, something like this always comes up!</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>The Results? (1)</h2>
+        <pre><code data-trim contenteditable>
+> db.tweets.find({'retweet_count': {'$gt': 99}}).explain()
+{
+  "cursor" : "BtreeCursor retweet_count_1",
+  "isMultiKey" : false,
+  "n" : 827,
+  "nscannedObjects" : 827,
+  "nscanned" : 827,
+  "nscannedObjectsAllPlans" : 827,
+  "nscannedAllPlans" : 827,
+  "scanAndOrder" : false,
+  "indexOnly" : false,
+  "nYields" : 6,
+  "nChunkSkips" : 0,
+  "millis" : 4,
+  "indexBounds" : {
+    "retweet_count" : [
+      [
+        99,
+        Infinity
+      ]
+    ]
+  },
+  "server" : "Resolution.local:27017",
+  "filterSet" : false
+}
+        </code></pre>
+        <p>Nice!</p>
+      </section>
+
+      <section>
+        <h2>The Results? (2)</h2>
+        <ul>
+          <li>Our query now uses a BtreeCursor on the newly created index</li>
+          <li>The answer to the query is still 827 tweets
+            <ul>
+              <li>But this time, it only scanned 827 index entrys (nscanned) and only scanned 827 documents (nscannedObjects).</li>
+            </ul>
+          </li>
+          <li>It had to scan the documents because our query implicitly asked for the entire document to be returned.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>The Results? (3)</h2>
+        <ul>
+          <li>Look what happens if we only ask for the retweet_count of each tweet
+            <ul>
+              <li>Note: we have to tell MongoDB to not return the _id attribute for this to work</li>
+            </ul>
+          </li>
+        </ul>
+        <pre><code data-trim contenteditable>
+> db.tweets.find({'retweet_count': {'$gt': 99}}, {'retweet_count': 1, '_id': 0}).explain()
+{
+  "cursor" : "BtreeCursor retweet_count_1",
+  "isMultiKey" : false,
+  "n" : 827,
+  "nscannedObjects" : 0,
+  "nscanned" : 827,
+  "nscannedObjectsAllPlans" : 0,
+  "nscannedAllPlans" : 827,
+  "scanAndOrder" : false,
+  "indexOnly" : true,
+  "nYields" : 6,
+  "nChunkSkips" : 0,
+  "millis" : 1,
+  "indexBounds" : {
+    "retweet_count" : [
+      [
+        99,
+        Infinity
+      ]
+    ]
+  },
+  "server" : "Resolution.local:27017",
+  "filterSet" : false
+}
+        </code></pre>
+      </section>
+
+      <section>
+        <h2>The Results? (4)</h2>
+        <ul>
+          <li>In this case, it scanned just the index (827 entries) but no documents (nscannedObjects == 0)</li>
+          <li>That's because all of the information it needed to return was located in the index.
+            <ul>
+              <li>No need to even look at the associated documents!</li>
+            </ul>
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>The Results? (5)</h2>
+        <ul>
+          <li>Can we do our sort now?
+            <ul>
+              <li>The one that failed previously?</li>
+            </ul>
+          </li>
+        </ul>
+        <pre><code data-trim contenteditable>
+db.tweets.find().sort({'retweet_count':-1})
+&lt;827 Tweets Go Here&gt;
+db.tweets.find().sort({'retweet_count':1})
+&lt;827 Tweets Go Here In The Opposite Direction&gt;
+        </code></pre>
+        <p>Yep!</p>
+      </section>
+
+      <section>
+        <h2>The Results? (6)</h2>
+        <ul>
+          <li>The reason for this is that the index has already done the work sorting the documents by retweet_count
+            <ul>
+              <li>MongoDB can just use the index to return documents in sorted order</li>
+            </ul>
+          </li>
+          <li>Why did it fail before?
+            <ul>
+              <li>Without the index, MongoDB would need to read all of the documents into memory, then sort them by 'retweet_count' and then present the documents in sorted order</li>
+              <li>The problem? MongoDB imposes a limit of 32 MB for doing in-memory sorts</li>
+              <li>Our 100K tweets take up way more space than that!</li>
+            </ul>
+          </li>
+        </ul>
+
+      </section>
+
+      <section>
+        <h2>Compound Indexes</h2>
+        <ul>
+          <li>Let's say we wanted to sort and query on two attributes</li>
+          <li>Example: I want to see the tweets first sorted by the user's created_at date and then by reverse order of the tweet's created_at date</li>
+          <li>This would show me the most recent tweets of the longest Twitter user in my data set first.</li>
+          <li>If I created an index on just one of these attributes, I wouldn't get what I want
+            <ul>
+              <li>An index on tweet['created_at'] would just let me sort and query tweets based on when they were created, independent of user</li>
+              <li>An index on tweet['user']['created_at'] would provide me with the tweets of the oldest (or youngest) Twitter user in my data set but with no guarantee on the order of their individual tweets</li>
+            </ul>
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Quick Test Before Index Creation</h2>
+        <ul>
+          <li>db.tweets.find().sort({'user.created_at': 1, 'created_at': -1}): FAIL</li>
+        </ul>
+        <pre><code data-trim contenteditable>
+> before2012 = new Date()
+> before2012.setTime(Date.parse("Jan 1, 2012"))
+> db.tweets.find({'user.created_at': {'$lt': before2012}}).explain("executionStats")
+"executionStats" : {
+  "executionSuccess" : true,
+  "nReturned" : 44845,
+  "executionTimeMillis" : 280,
+  "totalKeysExamined" : 0,
+  "totalDocsExamined" : 100681,
+  ...
+> afterFeb10 = new Date()
+> afterFeb10.setTime(Date.parse("Feb 10, 2015"))
+> db.tweets.find({'user.created_at': {'$lt': before2012}, 'created_at': {'$gt': afterFeb10}}).explain("executionStats")
+"executionStats" : {
+  "executionSuccess" : true,
+  "nReturned" : 30885,
+  "executionTimeMillis" : 122,
+  "totalKeysExamined" : 0,
+  "totalDocsExamined" : 100681,
+        </code></pre>
+        <p>FAIL</p>
+      </section>
+
+      <section>
+        <h2>Creating the Compound Index</h2>
+        <ul>
+          <li>db.tweets.ensureIndex({'user.created_at': 1, 'created_at': -1});</li>
+          <li>The Results?</li>
+        </ul>
+        <pre><code data-trim contenteditable>
+> db.tweets.find({'user.created_at': {'$lt': before2012}, 'created_at': {'$gt': afterFeb10}}).explain("executionStats")
+"executionStats" : {
+  "executionSuccess" : true,
+  "nReturned" : 30885,
+  "executionTimeMillis" : 63,
+  "totalKeysExamined" : 39933,
+  "totalDocsExamined" : 30885,
+        </code></pre>
+        <p>BOOM!</p>
+        <p>The sort command on the previous slide works as well, since it simply serves documents through the index.</p>
+      </section>
+
+      <section>
+        <h2>More to Learn</h2>
+        <ul>
+          <li>We have now covered the basics of MongoDB indexes</li>
+          <li>There is more to learn.
+            <ul>
+              <li>As you determine what queries you are going to make on your MongoDB collection, you use the explain() command to determine if they will use an index</li>
+              <li>If they don't, you have to then figure out how to create an index that will make the query fast</li>
+              <li>The trade-off is disk space</li>
+            </ul>
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Coming Up Next</h2>
+        <ul>
+          <li>Next week, I will cover additional MongoDB indexes and capabilities
+            <ul>
+              <li>Geospatial indexes</li>
+              <li>Full text Indexes</li>
+              <li>Map-Reduce Transformations on Collections</li>
+            </ul>
+          </li>
+        </ul>
+      </section>
+
+      </div>
     </div>
 
     <script src="lib/js/head.min.js"></script>
